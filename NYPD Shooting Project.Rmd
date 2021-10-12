@@ -1,0 +1,109 @@
+---
+title: "NYPD Shooting Incidence Report"
+author: "N. A. Sackey"
+date: "06/10/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+# Ensures that code chunks are shown unless specified otherwise and loads required packages
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+```
+
+## Introduction
+
+This report is concerned with the victims of shooting incidents in New York City especially with regard to the age group, sex and race of the victims. It is mainly focused on determining whether there are any groups of people who are most often the victims of shooting incidents and who they might be.
+
+The dataset used is a list of every incidence of shooting in New York City from 2006 to 2020 and records a variety of information regarding the incident such as the date, time, location, precinct as well as demographic information about both the perpetrator and the victim.
+
+## Tidying and Transfroming the Data
+
+```{r read_data}
+# Downloads and reads in the dataset
+data_url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+nypd_data <- read.csv(data_url)
+```
+
+Below is a summary of the data after it has been imported into Rstudio.
+
+```{r check_data}
+summary(nypd_data)
+```
+
+From the summary, it is clear that there are many unneeded columns such as 'Latitude', 'Longitude', 'Lon_Lat' etc. hence there is a need to clean up the dataset by getting rid of these unnecessary columns.
+
+```{r rm_cols}
+# Keep only the columns needed
+nypd_data %>% select(OCCUR_DATE:VIC_RACE) %>% select(-LOCATION_DESC) %>% select(-JURISDICTION_CODE) -> nypd_data
+```
+
+After the unneeded columns have been removed, the next step is to change the data types of variables to the appropriate data type, namely, the factor and date types.
+
+```{r convert_type}
+# Change the data types for the appropriate data type
+nypd_data %>% mutate(OCCUR_DATE = mdy(OCCUR_DATE)) -> nypd_data
+nypd_data$BORO <- as.factor(nypd_data$BORO)
+nypd_data$PRECINCT <- as.factor(nypd_data$PRECINCT)
+nypd_data$STATISTICAL_MURDER_FLAG <- as.factor(nypd_data$STATISTICAL_MURDER_FLAG)
+nypd_data$PERP_AGE_GROUP <- as.factor(nypd_data$PERP_AGE_GROUP)
+nypd_data$PERP_SEX <- as.factor(nypd_data$PERP_SEX)
+nypd_data$PERP_RACE <-as.factor(nypd_data$PERP_RACE)
+nypd_data$VIC_AGE_GROUP <- as.factor(nypd_data$VIC_AGE_GROUP)
+nypd_data$VIC_SEX <- as.factor(nypd_data$VIC_SEX)
+nypd_data$VIC_RACE <- as.factor(nypd_data$VIC_RACE)
+```
+
+Next, the data frame is checked to ensure that there are no problems with the data after transforming the dataset such that the variables now have their appropriate data types.
+
+```{r check_summary}
+summary(nypd_data)
+```
+
+From the summary above, some columns with missing data are noticed. These columns include 'PERP_AGE_GROUP', 'PERP_SEX' and 'PERP_RACE'. However, all these columns have a value that denotes unknown data therefore the missing data will be replaced with that value for those columns i.e. either "UNKNOWN" or "U".
+
+```{r replace_missing}
+# Replace the missing data values with 'UNKNOWN' or 'U'
+nypd_data$PERP_AGE_GROUP[nypd_data$PERP_AGE_GROUP == ""] <- "UNKNOWN"
+nypd_data$PERP_SEX[nypd_data$PERP_SEX == ""] <- "U"
+nypd_data$PERP_RACE[nypd_data$PERP_RACE == ""] <- "UNKNOWN"
+```
+
+With this, the summary now shows no missing data for any of the rows and thus the analysis can proceed.
+
+```{r confirm_replace}
+# Display a summary of the transformed data
+summary(nypd_data)
+```
+## Analysis
+
+The focus of this analysis will be the victims of shooting incidents in New York. The first visualization would be a grouped bar chart showing the number of shooting incidents against age group and race of the victim.
+
+```{r plot_age_race}
+# Plot a bar chart of number of incidents vs age and race
+ggplot(nypd_data, aes(x = VIC_AGE_GROUP, fill = VIC_RACE)) + geom_bar(position="dodge")
+```
+This bar chart shows that the most victims of shooting incidents are black victims aged 25-44. The next highest are white Hispanic victims while the least appears to be American Indian/Alaskan Natives.
+
+The second visualization is another group bar chart but one showing the number of shooting incidents against the sex and age group of the victims.
+
+```{r plot_age_sex}
+# Plot a bar chart of number of incidents vs age and sex
+ggplot(nypd_data, aes(x = VIC_AGE_GROUP, fill = VIC_SEX)) + geom_bar(position="dodge")
+```
+The bar chart above shows that males aged 25-44 are the most common victims of shooting incidents. This analysis does raise many questions particularly with regard to the unknown data and whether there may be additional variables and factors which could be considered. For example, population data or the number of people of a specific race or age group who reside within New York City or even the number of males as opposed to the female residents of the city. 
+
+## Conclusion
+
+The analysis carried out shows that black males aged 25-44 are most often the victims of shooting incidents in New York City. The main source of personal bias would be the choice of topic and data as the decision to choose to analyze the victims was motivated by personal curiosity and interest in which demographic was more affected by shootings in New York City. One way of attempting to mitigate bias would be the inclusion of the data observations with missing data when cleaning the data. By retaining the measurements which held missing values instead of discarding them, any aspect of exclusion bias would hopefully be mitigated.
+
+## Appendix
+
+```{r info}
+# Provide info about R Session
+sessionInfo()
+```
+
