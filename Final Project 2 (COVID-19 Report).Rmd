@@ -1,0 +1,306 @@
+---
+title: "Reproducible Report on COVID-19 Data"
+author: "N. A. Sackey"
+date: "07/10/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+# Ensures that code chunks are shown unless specified otherwise and loads the packages required.
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+```
+
+## Introduction
+
+This report is concerned with analyzing the outbreak of COVID-19 especially with regard to Canada and its provinces. It is mainly focused on determining how well Canada fared in the face of the pandemic.
+
+The datasets used are csv files hosted on the John Hopkins GitHub repository that record the number of cases of COVID-19 both for the US and globally from early 2020 to date and the number of deaths due to COVID-19 globally and for the US. They also record information associated with the cases and deaths such as the province, state, country, region or county as well as a variety of locational information.
+
+## Importing the Data
+
+In order to use the COVID-19 dataset, it is necessary that the data is imported into Rstudio from the GitHub repository. Therefore, the first step is to organize the urls for the different .csv files that are needed into a vector.
+
+```{r get_urls}
+# Create a vector of the urls for the .csv files
+url1 <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv"
+url2 <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
+url3 <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv"
+url4 <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv"
+urls <- c(url1,url2,url3,url4)
+```
+
+After getting the urls all in one vector, the datasets are now imported and read into Rstudio.
+
+```{r read_data}
+# Read in the data
+us_cases <- read_csv(urls[1])
+global_cases <- read_csv(urls[2])
+us_deaths <- read_csv(urls[3])
+global_deaths <- read_csv(urls[4])
+```
+
+## Tidying and Transforming the Data
+
+The next step is to tidy and transform the data. After examining the dataset, it is clear that the 'Lat' and 'Long' columns are not needed for this analysis and so these 2 columns will be removed from all the datasets.
+
+```{r drop_latlong}
+# Remove Lat and Long columns
+us_cases %>% select(-c(Lat, Long_)) -> us_cases
+global_cases %>% select(-c(Lat, Long)) -> global_cases
+us_deaths %>% select(-c(Lat, Long_)) -> us_deaths
+global_deaths %>% select(-c(Lat, Long)) -> global_deaths
+```
+
+However for the US datasets, there are additional variables which are not required. These include the 'UID', 'iso2', 'iso3', 'code3' and 'FIPS' columns hence they will also be removed.
+
+```{r drop_cols}
+# Remove unneeded columns from the US data
+us_cases %>% select(-c(UID, iso2, iso3, code3, FIPS)) -> us_cases
+us_deaths %>% select(-c(UID, iso2, iso3, code3, FIPS)) -> us_deaths
+```
+
+For the data to be tidy, each observation must be a single row and each variable must be a single column. The various columns which have dates as the column headings all measure the same thing i.e. the number of cases or deaths on a particular day. Therefore, they can be combined and placed in their own column named 'date' such that each date is on a separate row and the values they recorded, which is either the number of cases or the number of deaths, are also be placed in a separate column named either 'cases' or 'deaths'.
+
+```{r tidy_data}
+# Combine all columns except Province and Country into one and create separate columns for cases
+global_cases %>% pivot_longer(cols = -c(`Province/State`, `Country/Region`), names_to = "date", values_to = "cases") -> global_cases
+global_deaths %>% pivot_longer(cols = -c(`Province/State`, `Country/Region`), names_to = "date", values_to = "deaths") -> global_deaths
+us_cases %>% pivot_longer(cols = -(Admin2:Combined_Key), names_to = "date", values_to = "cases") -> us_cases
+us_deaths %>% pivot_longer(cols = -(Admin2:Population), names_to = "date", values_to = "deaths") -> us_deaths
+```
+
+Next, the data for the global cases and global deaths will be joined together into a single dataset and the 'Province/State' and 'Country/Region' column headers in the global dataset will be renamed in order to ensure that they are valid variable names for R. Similarly, the US cases and US deaths data will be combined into one and the 'Admin2' column in the US dataset will be renamed to 'County' to make it clearer.
+
+```{r combine}
+# Join the 2 datasets into 1
+global_cases %>% full_join(global_deaths) %>% rename(Province_State = `Province/State`, Country_Region = `Country/Region`) -> global
+us_cases %>% full_join(us_deaths) %>% rename(County = Admin2) -> us
+```
+
+Lastly, the dates recorded in the 'date' column for both the US and the global dataset are of the character data type and so must be converted into a date data type.
+
+```{r convert_date}
+# Convert dates from chr to date
+us %>% mutate(date = mdy(date)) -> us
+global %>% mutate(date = mdy(date)) -> global
+```
+
+After tidying the data it is now time to examine the data to check for any problems or errors by looking at a summary of the 2 datasets.
+
+```{r check_summary}
+# Provide a summary of the data
+summary(global)
+summary(us)
+```
+
+The summary shows the min date (earliest date) which is the 22nd of January for both datasets and the max and min for the cases and deaths as well as the population for the US dataset. From examining the data frames, it is clear that there are many observations early in the year of 2020 which do not record any cases. These are unneeded for this analysis and so it would be better to remove those and keep only the rows with at least one case.
+
+```{r drop_no_cases}
+# Remove rows which do not have at least 1 case
+global %>% filter(cases > 0) -> global
+us %>% filter(cases > 0) -> us
+```
+
+A summary of the global data shows that now the least number of cases is 1 for both datasets.
+
+```{r check_cases}
+# Provide a summary of the data
+summary(global)
+summary(us)
+```
+
+Next, it is time to ensure that the maximums shown in the summary are valid by checking for dates where the number of cases were greater than 40000000 for the global data and greater than 1000000 for the US data.
+
+```{r max_check}
+# Show only rows for cases greater that 40000000 and 1000000
+global %>% filter(cases > 40000000)
+us %>% filter(cases > 1000000)
+```
+
+This shows that for the global data, the rows which are filtered are all the total number of cases in the US from the 5th of September, 2021 onwards and for the US data, they are the number of cases in the county of Los Angeles from the 16th of January, 2021. From this, it can be concluded that the maximum is valid.
+
+Further examination of the two datasets shows that the US data contains the two variables 'Combined_Key' and 'Population' while the global data does not. However, in order to perform a comparative analysis, both variables will be required for the global data as well. Therefore, the next step is to create the 'Combined_Key' variable and add the 'Population' variable for the global dataset.
+
+```{r create_key}
+# Create a Combined_Key with rows containing State and Country entries attached together
+global %>%  unite("Combined_Key", c(Province_State, Country_Region), sep = ", ", na.rm = TRUE, remove = FALSE) -> global
+```
+
+In order to obtain the 'Population' variable for the global dataset, another dataset containing the population for the different countries will have to be imported. This population data can be acquired from the same John Hopkins Github repository from an additional .csv file. Therefore, the earlier steps are repeated to import and read it in to Rstudio   .
+
+```{r import_uid}
+# Read dataset into Rstudio
+url5 <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+uid <- read_csv(url5)
+```
+
+Looking at the newly imported data frame, it can be seen that it contains the population for the countries in the global dataset which is what is required. However, it also contains the same unnecessary columns as the US dataset which were removed earlier when the US dataset was tidied. Therefore, the process is repeated for this new dataset and the unneeded columns are also removed.
+
+```{r rm_cols}
+# Remove unneeded columns
+uid %>% select(-c(Lat, Long_, Combined_Key, code3, iso2, iso3, Admin2)) -> uid
+```
+
+Hence, only the 'UID', 'FIPS', 'Province_State', 'Country_Region' and 'Population' variables are left in the data frame. Now, all that remains is to join the uid and global data frames together into a single data frame that contains all the previous variables of the global dataset as well as the population from the uid data frame.
+
+```{r add_pop}
+# Join uid and global for population and remove UID and FIPS after
+global %>% left_join(uid, by = c("Province_State", "Country_Region")) %>% select(-c(UID, FIPS)) %>% select(Province_State, Country_Region, date, cases, deaths, Population, Combined_Key) -> global
+```
+
+Finally, after joining the data frames, there is no longer any need for 'UID' and 'FIPS' in the global dataset and so they are removed as well. 
+
+Since the focus of this analysis is the cases of COVID-19 amongst the Canadian provinces, the global dataset is filtered in order to select only the COVID data about Canada and place it into a separate data frame.
+
+```{r select_CAN}
+# Select only the Canadian data
+global %>% filter(Country_Region == "Canada") -> canada
+```
+
+From looking at the data frame, there are some rows for which the population data is missing and so there is a need to check exactly how many of these rows exist in the data frame and why.
+
+```{r check_NA}
+# Select the rows with missing population data
+canada %>% filter( is.na(Population))
+```
+
+This tibble shows that these rows refer to the cases of COVID-19 detected at locations other than the provinces of Canada such as the two cruise ships, the Diamond Princess and the Grand Princess, and therefore do not have any population data. Since this analysis is focused on the provinces of Canada, it would be better to simply remove these rows.
+
+```{r remove_NA}
+# Remove rows with NA
+CAN_by_province <- na.omit(canada)
+```
+
+After ensuring that there are no more missing data, the next step is to find the total for Canada as a whole rather than according to province. Additionally. a new variable 'deaths_per_mil' will be created for the analysis.
+
+```{r find_total}
+# Reorganize Canada data to find totals and add new var
+CAN_by_province %>% group_by(Country_Region, date) %>% summarize(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>% 
+  mutate(deaths_per_mil = deaths*1000000/Population) %>% select(Country_Region, date, cases, deaths, deaths_per_mil, Population) %>% ungroup() -> CAN_totals
+```
+
+The end of the new 'CAN_totals' data frame is then examined to confirm the results of the data transformation. 
+
+```{r check_end}
+# Display last few rows
+tail(CAN_totals)
+```
+
+This shows that the number of cases and deaths are much higher at the tail end of the data as expected and also shows that 'deaths_per_mil' is around 745 for Canada as of the latest date.
+
+## Analyzing the Data
+
+Now that the data is finally tidied and transformed, visualization and analysis can begin. In order to preserve details in the graph, the y variable will be scaled on a log scale. The first visualization will be to see how the number of cases compares to the number of deaths due to COVID-19 across the entirety of Canada and how this has changed with time.
+
+```{r plot_cases_deaths}
+# Plot cases and deaths for Canada as a whole
+ggplot(CAN_totals, aes(x = date)) + geom_line(aes(y = cases, color = "cases")) + geom_point(aes(y = cases, color = "cases")) + geom_line(aes(y = deaths, color = "deaths")) + geom_point(aes(y = deaths, color = "deaths")) + scale_y_log10() + theme(axis.text.x = element_text(angle = 90)) + labs(title = "COVID-19 in Canada", y = NULL)
+```
+
+This shows the total number of cases and deaths in Canada from the start of the COVID-19 reports. The same kind of visualization can be performed for the individual provinces of Canada as well. For this visualization, the province of Ontario will be selected.
+
+```{r plot_cases_deaths_ON}
+# Plot cases and deaths for Ontario
+CAN_by_province %>% filter(Province_State == "Ontario") -> ontario
+ggplot(ontario, aes(x = date)) + geom_line(aes(y = cases, color = "cases")) + geom_point(aes(y = cases, color = "cases")) + geom_line(aes(y = deaths, color = "deaths")) + geom_point(aes(y = deaths, color = "deaths")) + scale_y_log10() + theme(axis.text.x = element_text(angle = 90)) + labs(title = "COVID-19 in Ontario", y = NULL)
+```
+
+From the 'CAN_totals' data, the maximum date (latest date) is the 11th of Oct.,2021 with the number of deaths on that date being 28263 which is the maximum of deaths for the entirety of Canada, however from the graph it appears that the number of COVID-19 cases have leveled off therefore raising questions about the visualization, specifically, whether the apparent leveling off is true and that there are very few new COVID-19 cases in Canada. Before any attempt at modeling, this question should be answered.
+
+```{r new_cases_deaths}
+# Create a new variable with the new cases and new deaths
+CAN_by_province %>% mutate(new_cases = cases - lag(cases), new_deaths = deaths - lag(deaths)) -> CAN_by_province
+CAN_totals %>% mutate(new_cases = cases - lag(cases), new_deaths = deaths - lag(deaths)) -> CAN_totals
+```
+
+In order to analyze this, there is a need to add some more variables to the data and therefore the data must be transformed yet again.
+
+```{r check_new}
+# Check the last few rows after adding new cases and new deaths
+tail(CAN_totals %>% select(new_cases, new_deaths, everything()))
+```
+
+After confirming that the two new variables have been added to the data, another visualization can be performed.
+
+```{r plot_new}
+# Plot new cases and deaths
+ggplot(CAN_totals, aes(x = date)) + geom_line(aes(y = new_cases, color = "new_cases")) + geom_point(aes(y = new_cases, color = "new_cases")) + geom_line(aes(y = new_deaths, color = "new_deaths")) + geom_point(aes(y = new_deaths, color = "new_deaths")) + scale_y_log10() + theme(axis.text.x = element_text(angle = 90)) + labs(title = "COVID-19 in Canada", y = NULL)
+```
+
+This closer inspection of the new cases and new deaths reveals that it appears to flatten out when approaching the end of the graph i.e. in the most recent days, the rate of increase appears to be declining. However, not too long before both the number of new cases and new deaths had dropped greatly but rose again sharply. It could be concluded that the drop may be due to the COVID-19 restrictions set in place earlier in the year while the rise might be related to the more recent relaxation of those same restrictions and the opening of public spaces such as schools and restaurants. 
+
+This same visualization can also be performed at the province level, specifically for Ontario.
+
+```{r plot_new_cases_deaths_ON}
+# Plot new cases and new deaths for Ontario
+CAN_by_province %>% filter(Province_State == "Ontario") -> ontario
+ggplot(ontario, aes(x = date)) + geom_line(aes(y = new_cases, color = "new_cases")) + geom_point(aes(y = new_cases, color = "new_cases")) + geom_line(aes(y = new_deaths, color = "new_deaths")) + geom_point(aes(y = new_deaths, color = "new_deaths")) + scale_y_log10() + theme(axis.text.x = element_text(angle = 90)) + labs(title = "COVID-19 in Ontario", y = NULL)
+```
+
+The visualization of the new cases and new deaths in Ontario is similar to the previous one for Canada. It shows a similar fall and rise in new cases and new deaths with what appears to be decrease in the latter days though it is still nowhere near as low as its earlier dip.
+
+Following these basic visualizations, there may be some further questions that one may wish to answer such as which of the provinces is the best with regard to COVID-19 and which one is the worst? How can this be measured? Should the total cases be considered? Or the death rates per 1000 people? Hence, some more analysis would be required.
+
+For further analysis, there is a need to transform the data once again. This involves the creation of new variables such as the number of cases per 1000 people and the number of deaths per 1000 people.
+
+```{r totals_per_1k}
+# Create new variables and calculate the cases and deaths per 1000
+CAN_by_province %>% group_by(Province_State) %>% summarize(deaths = max(deaths), cases = max(cases), population = max(Population), cases_per_1k = 1000*cases/population, deaths_per_1k = 1000*deaths/population) %>% filter(cases > 0, population > 0) -> CAN_province_totals
+```
+
+Viewing the new data frame, it is clear that the province with the least deaths per thousand is Prince Edwards Island whiles Quebec has the highest deaths per thousand.
+
+```{r compare_deaths}
+# Display the cases and deaths per thousand for each province
+CAN_province_totals %>% slice_min(deaths_per_1k, n = 13) %>% select(cases_per_1k, deaths_per_1k, everything())
+```
+
+The same process can also be performed to determine the best and worst cases per thousand.
+
+```{r compare_cases}
+# Display the cases and deaths per thousand for each province
+CAN_province_totals %>% slice_min(cases_per_1k, n = 13) %>% select(cases_per_1k, deaths_per_1k, everything())
+```
+
+This shows once again that Prince Edward Island fares the best with the least cases per thousand which makes sense considering that it had the lowest death rate. However, the province with the highest cases per thousand was Alberta and not Quebec which had the highest death rate.
+
+## Modeling
+
+For modeling the data, the relationship between the number of cases per thousand and the number of deaths per thousand must be considered. The choice of model for this will be a linear model as a linear relationship is expected between the cases and the deaths.
+
+```{r model}
+# Use a linear model for deaths per 1000 and cases per 1000
+mod <- lm(deaths_per_1k ~ cases_per_1k, data = CAN_province_totals)
+summary(mod)
+```
+
+The next step is to check the model. In order to do that, a new data frame containing the predictions of the model is created.
+
+```{r add_pred}
+# Create new data frame with predictions
+CAN_province_totals %>% mutate(pred = predict(mod)) -> CAN_tot_w_pred 
+```
+
+Now, the predicted deaths per thousand and the actual deaths per thousand are plotted on the same graph in order to see how well the model does.
+
+```{r check_model}
+# Plot the predicted and true values
+ggplot(CAN_tot_w_pred, aes(x = cases_per_1k)) + geom_point(aes(y = deaths_per_1k, color = "true")) + geom_point(aes(y = pred, color = "predicted"))
+```
+
+The graph shows that the model does quite a good job of predicting the trend at the lower end but is less accurate from the middle to the higher end. Even though it can be concluded that the number of cases per thousand is an indicator of the number of deaths per thousand, the graph above raises questions such as what are the points have large residuals and why are they different compared to the other points that were modeled? These questions imply that there may be other factors and variables that should be considered and included as part of the model in order to improve prediction.
+
+## Bias Sources
+
+The primary sources of bias identified is the choice of topic and data to analyze. The decision to work with and examine Canadian COVID-19 data was motivated by the fact that I am a resident of Canada and was quite interested in how COVID-19 had affected Canada. In the analysis, I also chose to consider Ontario over the other provinces since I live in Toronto.
+
+## Appendix
+
+```{r info}
+# Provide info about R session
+sessionInfo()
+```
